@@ -1,5 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { getApiServices } from '../api';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import type { Equipment, Checkout, User, Manager, ActivityEntry, Category } from '../types';
 import {
   CATEGORIES,
@@ -10,6 +9,7 @@ import {
   ACTIVITY_LOG,
 } from '../data/mockData';
 import { env } from '../config/env';
+import type { ApiServices } from '../api';
 
 // Flag type for notifications
 export type FlagData = { id: string; title: string; description: string; type: 'success' | 'info' };
@@ -86,8 +86,19 @@ export function DataProvider({ children }: DataProviderProps) {
   const [flags, setFlags] = useState<FlagData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [useApi, setUseApi] = useState(false);
+  const servicesRef = useRef<ApiServices | null>(null);
 
   const currentManager = managers[0];
+
+  // Helper to get services (lazily loaded)
+  const getServices = useCallback(async (): Promise<ApiServices | null> => {
+    if (!useApi) return null;
+    if (servicesRef.current) return servicesRef.current;
+
+    const { getApiServices } = await import('../api');
+    servicesRef.current = getApiServices();
+    return servicesRef.current;
+  }, [useApi]);
 
   // Check if we should use API
   useEffect(() => {
@@ -96,19 +107,21 @@ export function DataProvider({ children }: DataProviderProps) {
 
     if (shouldUseApi) {
       console.log('Supabase configured, using API services');
-      loadDataFromApi();
+      // Load data after setting useApi
+      (async () => {
+        const { getApiServices } = await import('../api');
+        servicesRef.current = getApiServices();
+        await loadDataFromApiInternal(servicesRef.current);
+      })();
     } else {
       console.log('Using mock data (Supabase not configured)');
     }
   }, []);
 
-  // Load data from API
-  const loadDataFromApi = useCallback(async () => {
-    if (!useApi && !(env.supabase.url && env.supabase.anonKey)) return;
-
+  // Load data from API (internal version that takes services)
+  const loadDataFromApiInternal = async (services: ApiServices) => {
     setIsLoading(true);
     try {
-      const services = getApiServices();
       const [
         equipmentResult,
         checkoutsResult,
@@ -148,7 +161,14 @@ export function DataProvider({ children }: DataProviderProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [useApi]);
+  };
+
+  // Load data from API (public version)
+  const loadDataFromApi = useCallback(async () => {
+    const services = await getServices();
+    if (!services) return;
+    await loadDataFromApiInternal(services);
+  }, [getServices]);
 
   // Flag handlers
   const addFlag = useCallback((f: Omit<FlagData, 'id'>) => {
@@ -164,7 +184,7 @@ export function DataProvider({ children }: DataProviderProps) {
   // Activity handler
   const addActivity = useCallback(async (entry: Omit<ActivityEntry, 'id'>) => {
     if (useApi) {
-      const services = getApiServices();
+      const services = servicesRef.current!;
       const result = await services.activities.create({
         equipmentId: entry.equipmentId,
         action: entry.action,
@@ -183,7 +203,7 @@ export function DataProvider({ children }: DataProviderProps) {
   // Equipment handlers
   const handleAddEquipment = useCallback(async (e: Omit<Equipment, 'id' | 'conditionNotes'>) => {
     if (useApi) {
-      const services = getApiServices();
+      const services = servicesRef.current!;
       const result = await services.equipment.create({
         name: e.name,
         tagNumber: e.tagNumber,
@@ -206,7 +226,7 @@ export function DataProvider({ children }: DataProviderProps) {
 
   const handleEditItem = useCallback(async (id: string, name: string, categoryId: string) => {
     if (useApi) {
-      const services = getApiServices();
+      const services = servicesRef.current!;
       const result = await services.equipment.update(id, { name, categoryId });
       if (result.status === 'success' && result.data) {
         setEquipment(prev => prev.map(e => e.id === id ? result.data! : e));
@@ -220,7 +240,7 @@ export function DataProvider({ children }: DataProviderProps) {
 
   const handleArchive = useCallback(async (id: string, reason: string) => {
     if (useApi) {
-      const services = getApiServices();
+      const services = servicesRef.current!;
       const result = await services.equipment.archive(id, reason);
       if (result.status === 'success' && result.data) {
         setEquipment(prev => prev.map(e => e.id === id ? result.data! : e));
@@ -234,7 +254,7 @@ export function DataProvider({ children }: DataProviderProps) {
 
   const handleAddGeneralNote = useCallback(async (equipmentId: string, note: string) => {
     if (useApi) {
-      const services = getApiServices();
+      const services = servicesRef.current!;
       const result = await services.equipment.addConditionNote(equipmentId, note);
       if (result.status === 'success' && result.data) {
         setEquipment(prev => prev.map(e => e.id === equipmentId ? result.data! : e));
@@ -252,7 +272,7 @@ export function DataProvider({ children }: DataProviderProps) {
     const item = equipment.find(e => e.id === co.equipmentId);
 
     if (useApi) {
-      const services = getApiServices();
+      const services = servicesRef.current!;
       const result = await services.checkouts.create({
         equipmentId: co.equipmentId,
         userId: co.userId,
@@ -283,7 +303,7 @@ export function DataProvider({ children }: DataProviderProps) {
     const item = equipment.find(e => e.id === co.equipmentId);
 
     if (useApi) {
-      const services = getApiServices();
+      const services = servicesRef.current!;
       await services.checkouts.checkIn(checkoutId, {
         conditionNoteIn: note || undefined,
         checkedInBy: currentManager.name,
@@ -316,7 +336,7 @@ export function DataProvider({ children }: DataProviderProps) {
     const borrower = users.find(u => u.id === co.userId);
 
     if (useApi) {
-      const services = getApiServices();
+      const services = servicesRef.current!;
       await services.checkouts.sendReminder(checkoutId);
     }
 
@@ -327,7 +347,7 @@ export function DataProvider({ children }: DataProviderProps) {
   // User handlers
   const handleAddUser = useCallback(async (u: Omit<User, 'id'>) => {
     if (useApi) {
-      const services = getApiServices();
+      const services = servicesRef.current!;
       const result = await services.users.create(u);
       if (result.status === 'success' && result.data) {
         setUsers(prev => [...prev, result.data!]);
@@ -340,7 +360,7 @@ export function DataProvider({ children }: DataProviderProps) {
 
   const handleEditUser = useCallback(async (id: string, user: Omit<User, 'id'>) => {
     if (useApi) {
-      const services = getApiServices();
+      const services = servicesRef.current!;
       const result = await services.users.update(id, user);
       if (result.status === 'success' && result.data) {
         setUsers(prev => prev.map(u => u.id === id ? result.data! : u));
@@ -354,7 +374,7 @@ export function DataProvider({ children }: DataProviderProps) {
   // Manager handlers
   const handleAddManager = useCallback(async (email: string) => {
     if (useApi) {
-      const services = getApiServices();
+      const services = servicesRef.current!;
       const result = await services.managers.create({
         name: email.split('@')[0],
         email,
@@ -371,7 +391,7 @@ export function DataProvider({ children }: DataProviderProps) {
 
   const handleEditManager = useCallback(async (id: string, manager: Omit<Manager, 'id'>) => {
     if (useApi) {
-      const services = getApiServices();
+      const services = servicesRef.current!;
       const result = await services.managers.update(id, manager);
       if (result.status === 'success' && result.data) {
         setManagers(prev => prev.map(m => m.id === id ? result.data! : m));
@@ -384,7 +404,7 @@ export function DataProvider({ children }: DataProviderProps) {
 
   const handleRemoveManager = useCallback(async (id: string) => {
     if (useApi) {
-      const services = getApiServices();
+      const services = servicesRef.current!;
       await services.managers.remove(id);
     }
     setManagers(prev => prev.filter(m => m.id !== id));
@@ -394,7 +414,7 @@ export function DataProvider({ children }: DataProviderProps) {
   const handleUpdateProfile = useCallback(async (manager: Omit<Manager, 'id'>) => {
     const id = currentManager.id;
     if (useApi) {
-      const services = getApiServices();
+      const services = servicesRef.current!;
       const result = await services.managers.update(id, manager);
       if (result.status === 'success' && result.data) {
         setManagers(prev => prev.map(m => m.id === id ? result.data! : m));
@@ -408,7 +428,7 @@ export function DataProvider({ children }: DataProviderProps) {
   // Category handler
   const handleUpdateCategory = useCallback(async (id: string, name: string, color: string, bgColor?: string) => {
     if (useApi) {
-      const services = getApiServices();
+      const services = servicesRef.current!;
       const result = await services.categories.update(id, { name, color, bgColor });
       if (result.status === 'success' && result.data) {
         setCategories(prev => prev.map(c => c.id === id ? result.data! : c));
