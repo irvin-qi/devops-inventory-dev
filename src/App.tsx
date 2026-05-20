@@ -1,15 +1,7 @@
 import React, { useState } from 'react';
 import { FlagGroup } from '@atlaskit/flag';
 import Flag from '@atlaskit/flag';
-import type { Equipment, Checkout, User, Manager, ActivityEntry, Category } from './types';
-import {
-  CATEGORIES,
-  EQUIPMENT,
-  CHECKOUTS,
-  USERS,
-  MANAGERS,
-  ACTIVITY_LOG,
-} from './data/mockData';
+import { useData } from './context';
 import Dashboard from './components/Dashboard';
 import ActivityLog from './components/ActivityLog';
 import UserManagement from './components/UserManagement';
@@ -22,122 +14,39 @@ import AuditMode from './components/AuditMode';
 import { Box, Text, xcss } from '@atlaskit/primitives';
 import './app-shell.css';
 
-type FlagData = { id: string; title: string; description: string; type: 'success' | 'info' };
-
-const CURRENT_MANAGER = MANAGERS[0];
-
 export default function App() {
-  const [equipment, setEquipment] = useState<Equipment[]>(EQUIPMENT);
-  const [checkouts, setCheckouts] = useState<Checkout[]>(CHECKOUTS);
-  const [users, setUsers] = useState<User[]>(USERS);
-  const [managers, setManagers] = useState<Manager[]>(MANAGERS);
-  const [activityLog, setActivityLog] = useState<ActivityEntry[]>(ACTIVITY_LOG);
-  const [categories, setCategories] = useState<Category[]>(CATEGORIES);
-  const [flags, setFlags] = useState<FlagData[]>([]);
+  // Get all data and handlers from context
+  const {
+    equipment,
+    checkouts,
+    users,
+    managers,
+    activityLog,
+    categories,
+    currentManager,
+    flags,
+    dismissFlag,
+    handleCheckOut,
+    handleCheckIn,
+    handleSendReminder,
+    handleAddUser,
+    handleEditUser,
+    handleAddManager,
+    handleEditManager,
+    handleRemoveManager,
+    handleUpdateProfile,
+    handleUpdateCategory,
+    handleAddEquipment,
+    handleArchive,
+    handleEditItem,
+    handleAddGeneralNote,
+    addActivity,
+  } = useData();
+
+  // Local UI state only
   const [activeView, setActiveView] = useState<AppView>('board');
   const [inventoryQuery, setInventoryQuery] = useState('');
   const [inventoryStatusFilter, setInventoryStatusFilter] = useState<'all' | 'active' | 'available' | 'checked_out' | 'archived'>('all');
-
-  function addFlag(f: Omit<FlagData, 'id'>) {
-    const id = Date.now().toString();
-    setFlags(prev => [...prev, { ...f, id }]);
-    setTimeout(() => setFlags(prev => prev.filter(x => x.id !== id)), 4000);
-  }
-
-  function addActivity(entry: Omit<ActivityEntry, 'id'>) {
-    setActivityLog(prev => [{ ...entry, id: `a-${Date.now()}` }, ...prev]);
-  }
-
-  function handleCheckOut(co: Omit<Checkout, 'id'>) {
-    const id = `co-${Date.now()}`;
-    setCheckouts(prev => [...prev, { ...co, id }]);
-    setEquipment(prev => prev.map(e => e.id === co.equipmentId ? { ...e, status: 'checked_out' } : e));
-    const borrower = users.find(u => u.id === co.userId);
-    const item = equipment.find(e => e.id === co.equipmentId);
-    addActivity({ timestamp: new Date().toISOString(), equipmentId: co.equipmentId, action: 'check_out', actorName: CURRENT_MANAGER.name, userId: co.userId, note: co.conditionNoteOut || undefined });
-    addFlag({ type: 'success', title: 'Checked Out', description: `${item?.name} ${item?.tagNumber} → ${borrower?.fullName ?? 'user'}` });
-  }
-
-  function handleCheckIn(checkoutId: string, note: string) {
-    const co = checkouts.find(c => c.id === checkoutId);
-    if (!co) return;
-    setCheckouts(prev => prev.filter(c => c.id !== checkoutId));
-    setEquipment(prev => prev.map(e => e.id === co.equipmentId
-      ? { ...e, status: 'available', conditionNotes: note ? [...e.conditionNotes, note] : e.conditionNotes }
-      : e));
-    const item = equipment.find(e => e.id === co.equipmentId);
-    addActivity({ timestamp: new Date().toISOString(), equipmentId: co.equipmentId, action: 'check_in', actorName: CURRENT_MANAGER.name, userId: co.userId, note: note || undefined });
-    addFlag({ type: 'success', title: 'Returned', description: `${item?.name} ${item?.tagNumber} is now available` });
-  }
-
-  function handleSendReminder(checkoutId: string) {
-    const co = checkouts.find(c => c.id === checkoutId);
-    if (!co) return;
-    const item = equipment.find(e => e.id === co.equipmentId);
-    const borrower = users.find(u => u.id === co.userId);
-    addActivity({ timestamp: new Date().toISOString(), equipmentId: co.equipmentId, action: 'reminder', actorName: CURRENT_MANAGER.name, userId: co.userId });
-    addFlag({ type: 'info', title: 'Reminder Sent', description: `Twilio SMS + email → ${borrower?.fullName} for ${item?.name} ${item?.tagNumber}` });
-  }
-
-  function handleAddUser(u: Omit<User, 'id'>) {
-    setUsers(prev => [...prev, { ...u, id: `u-${Date.now()}` }]);
-    addFlag({ type: 'success', title: 'Student Added', description: u.fullName });
-  }
-
-  function handleEditUser(id: string, user: Omit<User, 'id'>) {
-    setUsers(prev => prev.map(u => u.id === id ? { ...user, id } : u));
-    addFlag({ type: 'success', title: 'Student Updated', description: user.fullName });
-  }
-
-  function handleAddManager(email: string) {
-    setManagers(prev => [...prev, { id: `m-${Date.now()}`, name: email.split('@')[0], email, role: 'manager' }]);
-    addFlag({ type: 'success', title: 'Manager Added', description: email });
-  }
-
-  function handleEditManager(id: string, manager: Omit<Manager, 'id'>) {
-    setManagers(prev => prev.map(m => m.id === id ? { ...manager, id } : m));
-    addFlag({ type: 'success', title: 'Manager Updated', description: manager.email });
-  }
-
-  function handleRemoveManager(id: string) {
-    setManagers(prev => prev.filter(m => m.id !== id));
-    addFlag({ type: 'info', title: 'Manager Removed', description: '' });
-  }
-
-  function handleUpdateProfile(manager: Omit<Manager, 'id'>) {
-    setManagers(prev => prev.map(m => m.id === CURRENT_MANAGER.id ? { ...manager, id: CURRENT_MANAGER.id } : m));
-    addFlag({ type: 'success', title: 'Profile Updated', description: manager.email });
-  }
-
-  function handleUpdateCategory(id: string, name: string, color: string, bgColor?: string) {
-    setCategories(prev => prev.map(c => c.id === id ? { ...c, name, color, ...(bgColor ? { bgColor } : {}) } : c));
-    addFlag({ type: 'success', title: 'Category Updated', description: `${name} column updated` });
-  }
-
-  function handleAddEquipment(e: Omit<Equipment, 'id' | 'conditionNotes'>) {
-    const newItem: Equipment = { ...e, id: `eq-${Date.now()}`, conditionNotes: [] };
-    setEquipment(prev => [...prev, newItem]);
-    addActivity({ timestamp: new Date().toISOString(), equipmentId: newItem.id, action: 'added', actorName: CURRENT_MANAGER.name });
-    addFlag({ type: 'success', title: 'Item Added', description: `${e.name} ${e.tagNumber}` });
-  }
-
-  function handleArchive(id: string, reason: string) {
-    setEquipment(prev => prev.map(e => e.id === id ? { ...e, status: 'archived', archivedReason: reason } : e));
-    addActivity({ timestamp: new Date().toISOString(), equipmentId: id, action: 'archived', actorName: CURRENT_MANAGER.name, note: reason });
-    addFlag({ type: 'info', title: 'Item Archived', description: reason });
-  }
-
-  function handleEditItem(id: string, name: string, categoryId: string) {
-    setEquipment(prev => prev.map(e => e.id === id ? { ...e, name, categoryId } : e));
-    addActivity({ timestamp: new Date().toISOString(), equipmentId: id, action: 'note', actorName: CURRENT_MANAGER.name, note: `Item updated: name="${name}"` });
-    addFlag({ type: 'success', title: 'Item Updated', description: name });
-  }
-
-  function handleAddGeneralNote(equipmentId: string, note: string) {
-    setEquipment(prev => prev.map(e => e.id === equipmentId ? { ...e, conditionNotes: [...e.conditionNotes, note] } : e));
-    addActivity({ timestamp: new Date().toISOString(), equipmentId, action: 'note', actorName: CURRENT_MANAGER.name, note });
-    addFlag({ type: 'success', title: 'Note Added', description: note.length > 48 ? `${note.slice(0, 48)}…` : note });
-  }
 
   const overdueCount = checkouts.filter(c => c.isOverdue).length;
 
@@ -249,7 +158,7 @@ export default function App() {
                 categories={categories}
                 users={users}
                 activityLog={activityLog}
-                role={CURRENT_MANAGER.role}
+                role={currentManager.role}
                 onCheckOut={handleCheckOut}
                 onCheckIn={handleCheckIn}
                 onSendReminder={handleSendReminder}
@@ -270,7 +179,7 @@ export default function App() {
                 query={inventoryQuery}
                 statusFilter={inventoryStatusFilter}
                 onStatusFilterChange={setInventoryStatusFilter}
-                role={CURRENT_MANAGER.role}
+                role={currentManager.role}
                 onCheckOut={handleCheckOut}
                 onCheckIn={handleCheckIn}
                 onSendReminder={handleSendReminder}
@@ -285,7 +194,7 @@ export default function App() {
                 <UserManagement
                   users={users}
                   managers={managers}
-                  role={CURRENT_MANAGER.role}
+                  role={currentManager.role}
                   onAddUser={handleAddUser}
                   onEditUser={handleEditUser}
                   onAddManager={handleAddManager}
@@ -303,8 +212,8 @@ export default function App() {
 
             {activeView === 'settings' && (
               <div className="app-pane">
-                <Settings 
-                  currentManager={CURRENT_MANAGER}
+                <Settings
+                  currentManager={currentManager}
                   onUpdateProfile={handleUpdateProfile}
                 />
               </div>
@@ -312,11 +221,11 @@ export default function App() {
 
             {activeView === 'audit' && (
               <div className="app-pane">
-                <AuditMode 
+                <AuditMode
                   equipment={equipment}
                   categories={categories}
                   users={users}
-                  currentRole={CURRENT_MANAGER.role}
+                  currentRole={currentManager.role}
                 />
               </div>
             )}
@@ -324,7 +233,7 @@ export default function App() {
         </div>
       </div>
 
-      <FlagGroup onDismissed={(id) => setFlags(prev => prev.filter(f => f.id !== id))}>
+      <FlagGroup onDismissed={(id) => dismissFlag(String(id))}>
         {flags.map(f => (
           <Flag
             key={f.id} id={f.id} title={f.title} description={f.description}

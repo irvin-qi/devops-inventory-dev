@@ -1,0 +1,9 @@
+// Export all Supabase service implementations
+export { EquipmentService } from './EquipmentService';
+export { CheckoutService } from './CheckoutService';
+export { UserService } from './UserService';
+export { ManagerService } from './ManagerService';
+export { CategoryService } from './CategoryService';
+export { ActivityService } from './ActivityService';
+export { AuthService } from './AuthService';
+export { getSupabaseClient } from './client';
