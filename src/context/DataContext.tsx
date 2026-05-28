@@ -1,14 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import type { Equipment, Checkout, User, Manager, ActivityEntry, Category } from '../types';
-import {
-  CATEGORIES,
-  EQUIPMENT,
-  CHECKOUTS,
-  USERS,
-  MANAGERS,
-  ACTIVITY_LOG,
-} from '../data/mockData';
-import { env } from '../config/env';
 import type { ApiServices } from '../api';
 
 // Flag type for notifications
@@ -76,46 +67,36 @@ interface DataProviderProps {
 }
 
 export function DataProvider({ children }: DataProviderProps) {
-  // Use mock data initially - will be replaced with API data when Supabase is configured
-  const [equipment, setEquipment] = useState<Equipment[]>(EQUIPMENT);
-  const [checkouts, setCheckouts] = useState<Checkout[]>(CHECKOUTS);
-  const [users, setUsers] = useState<User[]>(USERS);
-  const [managers, setManagers] = useState<Manager[]>(MANAGERS);
-  const [activityLog, setActivityLog] = useState<ActivityEntry[]>(ACTIVITY_LOG);
-  const [categories, setCategories] = useState<Category[]>(CATEGORIES);
+  // Start with empty arrays - data will be loaded from API
+  const [equipment, setEquipment] = useState<Equipment[]>([]);
+  const [checkouts, setCheckouts] = useState<Checkout[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [managers, setManagers] = useState<Manager[]>([]);
+  const [activityLog, setActivityLog] = useState<ActivityEntry[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [flags, setFlags] = useState<FlagData[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [useApi, setUseApi] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const servicesRef = useRef<ApiServices | null>(null);
 
-  const currentManager = managers[0];
+  // Fallback to a default manager if none exist (e.g., during API loading)
+  const currentManager = managers[0] ?? { id: '', name: 'System', email: '', role: 'manager' as const };
 
   // Helper to get services (lazily loaded)
-  const getServices = useCallback(async (): Promise<ApiServices | null> => {
-    if (!useApi) return null;
+  const getServices = useCallback(async (): Promise<ApiServices> => {
     if (servicesRef.current) return servicesRef.current;
 
     const { getApiServices } = await import('../api');
     servicesRef.current = getApiServices();
     return servicesRef.current;
-  }, [useApi]);
+  }, []);
 
-  // Check if we should use API
+  // Load data on mount
   useEffect(() => {
-    const shouldUseApi = Boolean(env.supabase.url && env.supabase.anonKey && env.apiBackend === 'supabase');
-    setUseApi(shouldUseApi);
-
-    if (shouldUseApi) {
-      console.log('Supabase configured, using API services');
-      // Load data after setting useApi
-      (async () => {
-        const { getApiServices } = await import('../api');
-        servicesRef.current = getApiServices();
-        await loadDataFromApiInternal(servicesRef.current);
-      })();
-    } else {
-      console.log('Using mock data (Supabase not configured)');
-    }
+    (async () => {
+      const { getApiServices } = await import('../api');
+      servicesRef.current = getApiServices();
+      await loadDataFromApiInternal(servicesRef.current);
+    })();
   }, []);
 
   // Load data from API (internal version that takes services)
@@ -166,7 +147,6 @@ export function DataProvider({ children }: DataProviderProps) {
   // Load data from API (public version)
   const loadDataFromApi = useCallback(async () => {
     const services = await getServices();
-    if (!services) return;
     await loadDataFromApiInternal(services);
   }, [getServices]);
 
@@ -183,118 +163,89 @@ export function DataProvider({ children }: DataProviderProps) {
 
   // Activity handler
   const addActivity = useCallback(async (entry: Omit<ActivityEntry, 'id'>) => {
-    if (useApi) {
-      const services = servicesRef.current!;
-      const result = await services.activities.create({
-        equipmentId: entry.equipmentId,
-        action: entry.action,
-        actorName: entry.actorName,
-        userId: entry.userId,
-        note: entry.note,
-      });
-      if (result.status === 'success' && result.data) {
-        setActivityLog(prev => [result.data!, ...prev]);
-      }
-    } else {
-      setActivityLog(prev => [{ ...entry, id: `a-${Date.now()}` }, ...prev]);
+    const services = await getServices();
+    const result = await services.activities.create({
+      equipmentId: entry.equipmentId,
+      action: entry.action,
+      actorName: entry.actorName,
+      userId: entry.userId,
+      note: entry.note,
+    });
+    if (result.status === 'success' && result.data) {
+      setActivityLog(prev => [result.data!, ...prev]);
     }
-  }, [useApi]);
+  }, [getServices]);
 
   // Equipment handlers
   const handleAddEquipment = useCallback(async (e: Omit<Equipment, 'id' | 'conditionNotes'>) => {
-    if (useApi) {
-      const services = servicesRef.current!;
-      const result = await services.equipment.create({
-        name: e.name,
-        tagNumber: e.tagNumber,
-        categoryId: e.categoryId,
-      });
-      if (result.status === 'success' && result.data) {
-        setEquipment(prev => [...prev, result.data!]);
-        await addActivity({ timestamp: new Date().toISOString(), equipmentId: result.data.id, action: 'added', actorName: currentManager.name });
-        addFlag({ type: 'success', title: 'Item Added', description: `${e.name} ${e.tagNumber}` });
-      } else {
-        addFlag({ type: 'info', title: 'Error', description: result.error?.message || 'Failed to add item' });
-      }
-    } else {
-      const newItem: Equipment = { ...e, id: `eq-${Date.now()}`, conditionNotes: [] };
-      setEquipment(prev => [...prev, newItem]);
-      await addActivity({ timestamp: new Date().toISOString(), equipmentId: newItem.id, action: 'added', actorName: currentManager.name });
+    const services = await getServices();
+    const result = await services.equipment.create({
+      name: e.name,
+      tagNumber: e.tagNumber,
+      categoryId: e.categoryId,
+    });
+    if (result.status === 'success' && result.data) {
+      setEquipment(prev => [...prev, result.data!]);
+      await addActivity({ timestamp: new Date().toISOString(), equipmentId: result.data.id, action: 'added', actorName: currentManager.name });
       addFlag({ type: 'success', title: 'Item Added', description: `${e.name} ${e.tagNumber}` });
+    } else {
+      addFlag({ type: 'info', title: 'Error', description: result.error?.message || 'Failed to add item' });
     }
-  }, [useApi, addActivity, addFlag, currentManager.name]);
+  }, [getServices, addActivity, addFlag, currentManager.name]);
 
   const handleEditItem = useCallback(async (id: string, name: string, categoryId: string) => {
-    if (useApi) {
-      const services = servicesRef.current!;
-      const result = await services.equipment.update(id, { name, categoryId });
-      if (result.status === 'success' && result.data) {
-        setEquipment(prev => prev.map(e => e.id === id ? result.data! : e));
-      }
-    } else {
-      setEquipment(prev => prev.map(e => e.id === id ? { ...e, name, categoryId } : e));
+    const services = await getServices();
+    const result = await services.equipment.update(id, { name, categoryId });
+    if (result.status === 'success' && result.data) {
+      setEquipment(prev => prev.map(e => e.id === id ? result.data! : e));
     }
     await addActivity({ timestamp: new Date().toISOString(), equipmentId: id, action: 'note', actorName: currentManager.name, note: `Item updated: name="${name}"` });
     addFlag({ type: 'success', title: 'Item Updated', description: name });
-  }, [useApi, addActivity, addFlag, currentManager.name]);
+  }, [getServices, addActivity, addFlag, currentManager.name]);
 
   const handleArchive = useCallback(async (id: string, reason: string) => {
-    if (useApi) {
-      const services = servicesRef.current!;
-      const result = await services.equipment.archive(id, reason);
-      if (result.status === 'success' && result.data) {
-        setEquipment(prev => prev.map(e => e.id === id ? result.data! : e));
-      }
-    } else {
-      setEquipment(prev => prev.map(e => e.id === id ? { ...e, status: 'archived', archivedReason: reason } : e));
+    const services = await getServices();
+    const result = await services.equipment.archive(id, reason);
+    if (result.status === 'success' && result.data) {
+      setEquipment(prev => prev.map(e => e.id === id ? result.data! : e));
     }
     await addActivity({ timestamp: new Date().toISOString(), equipmentId: id, action: 'archived', actorName: currentManager.name, note: reason });
     addFlag({ type: 'info', title: 'Item Archived', description: reason });
-  }, [useApi, addActivity, addFlag, currentManager.name]);
+  }, [getServices, addActivity, addFlag, currentManager.name]);
 
   const handleAddGeneralNote = useCallback(async (equipmentId: string, note: string) => {
-    if (useApi) {
-      const services = servicesRef.current!;
-      const result = await services.equipment.addConditionNote(equipmentId, note);
-      if (result.status === 'success' && result.data) {
-        setEquipment(prev => prev.map(e => e.id === equipmentId ? result.data! : e));
-      }
-    } else {
-      setEquipment(prev => prev.map(e => e.id === equipmentId ? { ...e, conditionNotes: [...e.conditionNotes, note] } : e));
+    const services = await getServices();
+    const result = await services.equipment.addConditionNote(equipmentId, note);
+    if (result.status === 'success' && result.data) {
+      setEquipment(prev => prev.map(e => e.id === equipmentId ? result.data! : e));
     }
     await addActivity({ timestamp: new Date().toISOString(), equipmentId, action: 'note', actorName: currentManager.name, note });
-    addFlag({ type: 'success', title: 'Note Added', description: note.length > 48 ? `${note.slice(0, 48)}…` : note });
-  }, [useApi, addActivity, addFlag, currentManager.name]);
+    addFlag({ type: 'success', title: 'Note Added', description: note.length > 48 ? `${note.slice(0, 48)}...` : note });
+  }, [getServices, addActivity, addFlag, currentManager.name]);
 
   // Checkout handlers
   const handleCheckOut = useCallback(async (co: Omit<Checkout, 'id'>) => {
     const borrower = users.find(u => u.id === co.userId);
     const item = equipment.find(e => e.id === co.equipmentId);
 
-    if (useApi) {
-      const services = servicesRef.current!;
-      const result = await services.checkouts.create({
-        equipmentId: co.equipmentId,
-        userId: co.userId,
-        dueAt: co.dueAt,
-        conditionNoteOut: co.conditionNoteOut,
-        checkedOutBy: currentManager.name,
-      });
-      if (result.status === 'success' && result.data) {
-        setCheckouts(prev => [...prev, result.data!]);
-        // Update equipment status
-        await services.equipment.update(co.equipmentId, { status: 'checked_out' });
-        setEquipment(prev => prev.map(e => e.id === co.equipmentId ? { ...e, status: 'checked_out' } : e));
-      }
-    } else {
-      const id = `co-${Date.now()}`;
-      setCheckouts(prev => [...prev, { ...co, id }]);
+    const services = await getServices();
+    const result = await services.checkouts.create({
+      equipmentId: co.equipmentId,
+      userId: co.userId,
+      dueAt: co.dueAt,
+      conditionNoteOut: co.conditionNoteOut,
+      checkedOutBy: currentManager.name,
+    });
+    if (result.status === 'success' && result.data) {
+      setCheckouts(prev => [...prev, result.data!]);
+      // Update equipment status
+      await services.equipment.update(co.equipmentId, { status: 'checked_out' });
       setEquipment(prev => prev.map(e => e.id === co.equipmentId ? { ...e, status: 'checked_out' } : e));
     }
 
     await addActivity({ timestamp: new Date().toISOString(), equipmentId: co.equipmentId, action: 'check_out', actorName: currentManager.name, userId: co.userId, note: co.conditionNoteOut || undefined });
-    addFlag({ type: 'success', title: 'Checked Out', description: `${item?.name} ${item?.tagNumber} → ${borrower?.fullName ?? 'user'}` });
-  }, [useApi, users, equipment, addActivity, addFlag, currentManager.name]);
+    addFlag({ type: 'success', title: 'Checked Out', description: `${item?.name} ${item?.tagNumber} -> ${borrower?.fullName ?? 'user'}` });
+  }, [getServices, users, equipment, addActivity, addFlag, currentManager.name]);
 
   const handleCheckIn = useCallback(async (checkoutId: string, note: string) => {
     const co = checkouts.find(c => c.id === checkoutId);
@@ -302,31 +253,24 @@ export function DataProvider({ children }: DataProviderProps) {
 
     const item = equipment.find(e => e.id === co.equipmentId);
 
-    if (useApi) {
-      const services = servicesRef.current!;
-      await services.checkouts.checkIn(checkoutId, {
-        conditionNoteIn: note || undefined,
-        checkedInBy: currentManager.name,
-      });
-      // Update equipment status and add condition note if provided
-      if (note) {
-        await services.equipment.addConditionNote(co.equipmentId, note);
-      }
-      await services.equipment.update(co.equipmentId, { status: 'available' });
-      setCheckouts(prev => prev.filter(c => c.id !== checkoutId));
-      setEquipment(prev => prev.map(e => e.id === co.equipmentId
-        ? { ...e, status: 'available', conditionNotes: note ? [...e.conditionNotes, note] : e.conditionNotes }
-        : e));
-    } else {
-      setCheckouts(prev => prev.filter(c => c.id !== checkoutId));
-      setEquipment(prev => prev.map(e => e.id === co.equipmentId
-        ? { ...e, status: 'available', conditionNotes: note ? [...e.conditionNotes, note] : e.conditionNotes }
-        : e));
+    const services = await getServices();
+    await services.checkouts.checkIn(checkoutId, {
+      conditionNoteIn: note || undefined,
+      checkedInBy: currentManager.name,
+    });
+    // Update equipment status and add condition note if provided
+    if (note) {
+      await services.equipment.addConditionNote(co.equipmentId, note);
     }
+    await services.equipment.update(co.equipmentId, { status: 'available' });
+    setCheckouts(prev => prev.filter(c => c.id !== checkoutId));
+    setEquipment(prev => prev.map(e => e.id === co.equipmentId
+      ? { ...e, status: 'available', conditionNotes: note ? [...e.conditionNotes, note] : e.conditionNotes }
+      : e));
 
     await addActivity({ timestamp: new Date().toISOString(), equipmentId: co.equipmentId, action: 'check_in', actorName: currentManager.name, userId: co.userId, note: note || undefined });
     addFlag({ type: 'success', title: 'Returned', description: `${item?.name} ${item?.tagNumber} is now available` });
-  }, [useApi, checkouts, equipment, addActivity, addFlag, currentManager.name]);
+  }, [getServices, checkouts, equipment, addActivity, addFlag, currentManager.name]);
 
   const handleSendReminder = useCallback(async (checkoutId: string) => {
     const co = checkouts.find(c => c.id === checkoutId);
@@ -335,109 +279,81 @@ export function DataProvider({ children }: DataProviderProps) {
     const item = equipment.find(e => e.id === co.equipmentId);
     const borrower = users.find(u => u.id === co.userId);
 
-    if (useApi) {
-      const services = servicesRef.current!;
-      await services.checkouts.sendReminder(checkoutId);
-    }
+    const services = await getServices();
+    await services.checkouts.sendReminder(checkoutId);
 
     await addActivity({ timestamp: new Date().toISOString(), equipmentId: co.equipmentId, action: 'reminder', actorName: currentManager.name, userId: co.userId });
-    addFlag({ type: 'info', title: 'Reminder Sent', description: `Twilio SMS + email → ${borrower?.fullName} for ${item?.name} ${item?.tagNumber}` });
-  }, [useApi, checkouts, equipment, users, addActivity, addFlag, currentManager.name]);
+    addFlag({ type: 'info', title: 'Reminder Sent', description: `Twilio SMS + email -> ${borrower?.fullName} for ${item?.name} ${item?.tagNumber}` });
+  }, [getServices, checkouts, equipment, users, addActivity, addFlag, currentManager.name]);
 
   // User handlers
   const handleAddUser = useCallback(async (u: Omit<User, 'id'>) => {
-    if (useApi) {
-      const services = servicesRef.current!;
-      const result = await services.users.create(u);
-      if (result.status === 'success' && result.data) {
-        setUsers(prev => [...prev, result.data!]);
-      }
-    } else {
-      setUsers(prev => [...prev, { ...u, id: `u-${Date.now()}` }]);
+    const services = await getServices();
+    const result = await services.users.create(u);
+    if (result.status === 'success' && result.data) {
+      setUsers(prev => [...prev, result.data!]);
     }
     addFlag({ type: 'success', title: 'Student Added', description: u.fullName });
-  }, [useApi, addFlag]);
+  }, [getServices, addFlag]);
 
   const handleEditUser = useCallback(async (id: string, user: Omit<User, 'id'>) => {
-    if (useApi) {
-      const services = servicesRef.current!;
-      const result = await services.users.update(id, user);
-      if (result.status === 'success' && result.data) {
-        setUsers(prev => prev.map(u => u.id === id ? result.data! : u));
-      }
-    } else {
-      setUsers(prev => prev.map(u => u.id === id ? { ...user, id } : u));
+    const services = await getServices();
+    const result = await services.users.update(id, user);
+    if (result.status === 'success' && result.data) {
+      setUsers(prev => prev.map(u => u.id === id ? result.data! : u));
     }
     addFlag({ type: 'success', title: 'Student Updated', description: user.fullName });
-  }, [useApi, addFlag]);
+  }, [getServices, addFlag]);
 
   // Manager handlers
   const handleAddManager = useCallback(async (email: string) => {
-    if (useApi) {
-      const services = servicesRef.current!;
-      const result = await services.managers.create({
-        name: email.split('@')[0],
-        email,
-        role: 'manager',
-      });
-      if (result.status === 'success' && result.data) {
-        setManagers(prev => [...prev, result.data!]);
-      }
-    } else {
-      setManagers(prev => [...prev, { id: `m-${Date.now()}`, name: email.split('@')[0], email, role: 'manager' }]);
+    const services = await getServices();
+    const result = await services.managers.create({
+      name: email.split('@')[0],
+      email,
+      role: 'manager',
+    });
+    if (result.status === 'success' && result.data) {
+      setManagers(prev => [...prev, result.data!]);
     }
     addFlag({ type: 'success', title: 'Manager Added', description: email });
-  }, [useApi, addFlag]);
+  }, [getServices, addFlag]);
 
   const handleEditManager = useCallback(async (id: string, manager: Omit<Manager, 'id'>) => {
-    if (useApi) {
-      const services = servicesRef.current!;
-      const result = await services.managers.update(id, manager);
-      if (result.status === 'success' && result.data) {
-        setManagers(prev => prev.map(m => m.id === id ? result.data! : m));
-      }
-    } else {
-      setManagers(prev => prev.map(m => m.id === id ? { ...manager, id } : m));
+    const services = await getServices();
+    const result = await services.managers.update(id, manager);
+    if (result.status === 'success' && result.data) {
+      setManagers(prev => prev.map(m => m.id === id ? result.data! : m));
     }
     addFlag({ type: 'success', title: 'Manager Updated', description: manager.email });
-  }, [useApi, addFlag]);
+  }, [getServices, addFlag]);
 
   const handleRemoveManager = useCallback(async (id: string) => {
-    if (useApi) {
-      const services = servicesRef.current!;
-      await services.managers.remove(id);
-    }
+    const services = await getServices();
+    await services.managers.remove(id);
     setManagers(prev => prev.filter(m => m.id !== id));
     addFlag({ type: 'info', title: 'Manager Removed', description: '' });
-  }, [useApi, addFlag]);
+  }, [getServices, addFlag]);
 
   const handleUpdateProfile = useCallback(async (manager: Omit<Manager, 'id'>) => {
     const id = currentManager.id;
-    if (useApi) {
-      const services = servicesRef.current!;
-      const result = await services.managers.update(id, manager);
-      if (result.status === 'success' && result.data) {
-        setManagers(prev => prev.map(m => m.id === id ? result.data! : m));
-      }
-    } else {
-      setManagers(prev => prev.map(m => m.id === id ? { ...manager, id } : m));
+    const services = await getServices();
+    const result = await services.managers.update(id, manager);
+    if (result.status === 'success' && result.data) {
+      setManagers(prev => prev.map(m => m.id === id ? result.data! : m));
     }
     addFlag({ type: 'success', title: 'Profile Updated', description: manager.email });
-  }, [useApi, currentManager.id, addFlag]);
+  }, [getServices, currentManager.id, addFlag]);
 
   // Category handler
   const handleUpdateCategory = useCallback(async (id: string, name: string, color: string, bgColor?: string) => {
-    if (useApi) {
-      const services = servicesRef.current!;
-      const result = await services.categories.update(id, { name, color, bgColor });
-      if (result.status === 'success' && result.data) {
-        setCategories(prev => prev.map(c => c.id === id ? result.data! : c));
-      }
-    } else {
-      setCategories(prev => prev.map(c => c.id === id ? { ...c, name, color, ...(bgColor ? { bgColor } : {}) } : c));
+    const services = await getServices();
+    const result = await services.categories.update(id, { name, color, bgColor });
+    if (result.status === 'success' && result.data) {
+      setCategories(prev => prev.map(c => c.id === id ? result.data! : c));
     }
     addFlag({ type: 'success', title: 'Category Updated', description: `${name} column updated` });
-  }, [useApi, addFlag]);
+  }, [getServices, addFlag]);
 
   const value: DataContextValue = {
     equipment,

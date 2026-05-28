@@ -2,7 +2,6 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { env } from '../config/env';
 import type { AuthUser } from '../api/interfaces/IAuthService';
 import type { Manager } from '../types';
-import { MANAGERS } from '../data/mockData';
 
 interface AuthContextValue {
   user: AuthUser | null;
@@ -94,8 +93,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setUser(null);
   }, [isSupabaseConfigured]);
 
-  // Use mock manager when not authenticated or Supabase not configured
-  const currentManager = user?.manager || MANAGERS[0];
+  // Use placeholder manager when not authenticated or Supabase not configured
+  const currentManager: Manager = user?.manager ?? {
+    id: '',
+    name: 'System',
+    email: '',
+    role: 'manager' as const
+  };
 
   const value: AuthContextValue = {
     user,

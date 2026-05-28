@@ -7,19 +7,14 @@ import TextArea from '@atlaskit/textarea';
 import { DatePicker } from '@atlaskit/datetime-picker';
 import Lozenge from '@atlaskit/lozenge';
 import { Box, Inline, Text } from '@atlaskit/primitives';
-import type { Equipment, User, Checkout } from '../types';
-import { USERS } from '../data/mockData';
+import type { Equipment, Checkout } from '../types';
+import { useData } from '../context/DataContext';
 
 type Props = {
   equipment: Equipment;
   onClose: () => void;
   onConfirm: (checkout: Omit<Checkout, 'id'>) => void;
 };
-
-const userOptions = USERS.map((u) => ({
-  label: `${u.fullName} — ${u.publication} (${u.bruinCardNumber})`,
-  value: u.id,
-}));
 
 function getDefaultDueDate(): string {
   const d = new Date();
@@ -31,9 +26,15 @@ function getDefaultDueDate(): string {
 }
 
 export default function CheckOutModal({ equipment, onClose, onConfirm }: Props) {
+  const { users } = useData();
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState<string>(getDefaultDueDate());
   const [conditionNote, setConditionNote] = useState('');
+
+  const userOptions = users.map((u) => ({
+    label: `${u.fullName} — ${u.publication} (${u.bruinCardNumber})`,
+    value: u.id,
+  }));
 
   const handleSubmit = () => {
     if (!selectedUser) return;
