@@ -191,9 +191,12 @@ export function mapCheckoutRow(row: CheckoutRow) {
     id: row.id,
     equipmentId: row.equipment_id,
     userId: row.user_id,
+    performedById: row.checked_out_by,           // ← added: maps checked_out_by → performedById
     checkedOutAt: row.checked_out_at,
     dueAt: row.due_at,
+    returnedAt: row.checked_in_at ?? undefined,  // ← added: maps checked_in_at → returnedAt
     conditionNoteOut: row.condition_note_out ?? undefined,
+    conditionNoteIn: row.condition_note_in ?? undefined, // ← added
     isOverdue: row.checked_in_at === null && dueAt < now,
   };
 }

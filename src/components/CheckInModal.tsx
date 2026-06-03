@@ -12,12 +12,14 @@ type Props = {
   equipment: Equipment;
   checkout: Checkout;
   borrower: User | undefined;
+  performedBy: User;
   onClose: () => void;
-  onConfirm: (returnNote: string) => void;
+  onConfirm: (returnNote: string, performedById: string) => void;
 };
 
-export default function CheckInModal({ equipment, checkout, borrower, onClose, onConfirm }: Props) {
+export default function CheckInModal({ equipment, checkout, borrower, performedBy, onClose, onConfirm }: Props) {
   const [returnNote, setReturnNote] = useState('');
+  const handleConfirm = () => onConfirm(returnNote, performedBy.id);
 
   const dueDate = new Date(checkout.dueAt);
   const formattedDue = dueDate.toLocaleString('en-US', {
@@ -79,7 +81,7 @@ export default function CheckInModal({ equipment, checkout, borrower, onClose, o
           </Stack>
         </Box>
 
-        <Form onSubmit={() => onConfirm(returnNote)}>
+        <Form onSubmit={handleConfirm}>
           {({ formProps }) => (
             <form {...formProps}>
               <Field name="returnNote" label="Return Condition Note (optional)">
@@ -98,7 +100,7 @@ export default function CheckInModal({ equipment, checkout, borrower, onClose, o
       </ModalBody>
       <ModalFooter>
         <Button appearance="subtle" onClick={onClose}>Cancel</Button>
-        <Button appearance="primary" onClick={() => onConfirm(returnNote)}>
+        <Button appearance="primary" onClick={handleConfirm}>
           Confirm Return
         </Button>
       </ModalFooter>

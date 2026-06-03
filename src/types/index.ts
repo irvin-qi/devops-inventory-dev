@@ -23,9 +23,12 @@ export type Checkout = {
   id: string;
   equipmentId: string;
   userId: string;
+  performedById: string;
   checkedOutAt: string; // ISO string
   dueAt: string;        // ISO string
+  returnedAt?: string;
   conditionNoteOut?: string;
+  conditionNoteIn?: string
   isOverdue: boolean;
 };
 

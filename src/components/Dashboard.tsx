@@ -11,6 +11,7 @@ import CheckMarkIcon from '@atlaskit/icon/core/check-mark';
 import CrossIcon from '@atlaskit/icon/core/cross';
 import { resolveAtlaskitIcon } from '../utils/resolveAtlaskitIcon';
 import type { Equipment, Checkout, Category, User, ActivityEntry } from '../types';
+import { useAuth } from '../context/AuthContext'; // ← added
 import CheckOutModal from './CheckOutModal';
 import CheckInModal from './CheckInModal';
 import CardDetailModal from './CardDetailModal';
@@ -585,6 +586,8 @@ export default function Dashboard({
   onEditItem,
   onUpdateCategory,
 }: Props) {
+  const { currentManager } = useAuth(); // ← added
+
   const [checkOutItem,        setCheckOutItem]        = useState<Equipment | null>(null);
   const [checkInItem,         setCheckInItem]         = useState<Equipment | null>(null);
   const [detailItem,          setDetailItem]          = useState<Equipment | null>(null);
@@ -648,7 +651,6 @@ export default function Dashboard({
     });
   }
 
-  // Opens the Add Item modal pre-set to this column's category
   function handleAddCard(columnId: string) {
     if (columnId === 'checked-out') return;
     setAddCardColumnId(columnId);
@@ -754,7 +756,6 @@ export default function Dashboard({
         ))}
       </div>
 
-      {/* Add Item modal — opened from "Add a card" */}
       {addCardColumnId && (
         <AddItemModal
           categories={categories}
@@ -775,19 +776,22 @@ export default function Dashboard({
         />
       )}
 
-      {checkOutItem && (
+      {/* ← Guard: only render modals when currentManager is available */}
+      {checkOutItem && currentManager && (
         <CheckOutModal
           equipment={checkOutItem}
+          performedBy={currentManager}
           onClose={() => setCheckOutItem(null)}
           onConfirm={handleCheckOut}
         />
       )}
 
-      {checkInItem && checkInCheckout && (
+      {checkInItem && checkInCheckout && currentManager && (
         <CheckInModal
           equipment={checkInItem}
           checkout={checkInCheckout}
           borrower={checkInBorrower}
+          performedBy={currentManager}
           onClose={() => setCheckInItem(null)}
           onConfirm={(note) => handleCheckIn(checkInCheckout.id, note)}
         />

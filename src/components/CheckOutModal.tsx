@@ -7,39 +7,42 @@ import TextArea from '@atlaskit/textarea';
 import { DatePicker } from '@atlaskit/datetime-picker';
 import Lozenge from '@atlaskit/lozenge';
 import { Box, Inline, Text } from '@atlaskit/primitives';
-import type { Equipment, User, Checkout } from '../types';
-import { USERS } from '../data/mockData';
+import type { Equipment, Checkout, User } from '../types';
+import { useData } from '../context/DataContext';
 
 type Props = {
   equipment: Equipment;
+  performedBy: User;
   onClose: () => void;
   onConfirm: (checkout: Omit<Checkout, 'id'>) => void;
 };
-
-const userOptions = USERS.map((u) => ({
-  label: `${u.fullName} — ${u.publication} (${u.bruinCardNumber})`,
-  value: u.id,
-}));
 
 function getDefaultDueDate(): string {
   const d = new Date();
   d.setDate(d.getDate() + 1);
   // Skip weekend
   if (d.getDay() === 6) d.setDate(d.getDate() + 2);
-  if (d.getDay() === 0) d.setDate(d.getDate() + 1);
+  else if (d.getDay() === 0) d.setDate(d.getDate() + 1);
   return d.toISOString().slice(0, 10);
 }
 
-export default function CheckOutModal({ equipment, onClose, onConfirm }: Props) {
+export default function CheckOutModal({ equipment, performedBy, onClose, onConfirm }: Props) {
+  const { users } = useData();
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState<string>(getDefaultDueDate());
   const [conditionNote, setConditionNote] = useState('');
+
+  const userOptions = users.map((u) => ({
+    label: `${u.fullName} — ${u.publication} (${u.bruinCardNumber})`,
+    value: u.id,
+  }));
 
   const handleSubmit = () => {
     if (!selectedUser) return;
     onConfirm({
       equipmentId: equipment.id,
       userId: selectedUser,
+      performedById: performedBy.id,
       checkedOutAt: new Date().toISOString(),
       dueAt: new Date(`${dueDate}T12:00:00`).toISOString(),
       conditionNoteOut: conditionNote,
@@ -91,6 +94,7 @@ export default function CheckOutModal({ equipment, onClose, onConfirm }: Props) 
                     value={dueDate}
                     onChange={(val) => setDueDate(val)}
                     dateFormat="MM/DD/YYYY"
+                    minDate={new Date().toISOString().slice(0, 10)}
                   />
                 )}
               </Field>
